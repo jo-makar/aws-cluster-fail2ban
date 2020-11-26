@@ -8,11 +8,11 @@ import (
 )
 
 type StandaloneJailer struct {
-	mux         sync.Mutex
-	                                     // net.IP is a slice type and cannot be used to map keys
-	infractions map[string]([]time.Time) // Unix timestamps of infractions by offending ip
+	infractionsMux sync.Mutex
+	                                        // net.IP is a slice type and cannot be used to map keys
+	infractions    map[string]([]time.Time) // Unix timestamps of infractions by offending ip
 
-	quitChans   []chan bool
+	quitChans      []chan bool
 }
 
 func NewStandaloneJailer() (*StandaloneJailer, error) {
@@ -59,8 +59,8 @@ func (j StandaloneJailer) Close() error {
 }
 
 func (j StandaloneJailer) AddInfraction(ip net.IP) error {
-	j.mux.Lock()
-	defer j.mux.Unlock()
+	j.infractionsMux.Lock()
+	defer j.infractionsMux.Unlock()
 
 	s := ip.String()
 
@@ -102,8 +102,8 @@ func (j StandaloneJailer) AddInfraction(ip net.IP) error {
 }
 
 func (j StandaloneJailer) cleanup() {
-	j.mux.Lock()
-	defer j.mux.Unlock()
+	j.infractionsMux.Lock()
+	defer j.infractionsMux.Unlock()
 
 	ipsDeleted := 0
 	ipsAffected := 0

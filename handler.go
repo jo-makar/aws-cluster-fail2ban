@@ -1,27 +1,51 @@
 package main
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Handler struct {
-	jailer   Jailer
+	jailer       Jailer
 
-	mux      sync.Mutex
-	                                  // net.IP is a slice type and cannot be used to map keys
-	requests map[string](map[int]int) // Http response code counts by requesting ip
+	responsesMux sync.Mutex
+	responses    map[string](map[int]int) // Http response code counts
+
+	quitChan     chan bool
 }
 
 func NewHandler(jailer Jailer) (*Handler, error) {
-	return &Handler{
-		  jailer: jailer,
-		requests: make(map[string](map[int]int)),
-	}, nil
+	handler := &Handler{
+		   jailer: jailer,
+		responses: make(map[string](map[int]int)),
+		 quitChan: make(chan bool),
+	}
 
-	// FIXME periodically output stats via a goroutine? or just rely on /state/...
+	go func() {
+		for {
+			select {
+				case <-handler.quitChan:
+					break
+				case <-time.After(10 * time.Minute):
+					handler.responsesMux.Lock()
+					handler.responsesMux.Unlock()
+
+					for uri, stats := range handler.responses {
+						pretty := ""
+						for k, v := range stats {
+							pretty += fmt.Sprintf(" %d:%d", k, v)
+						}
+						InfoLog("stats: %s:%s\n", uri, pretty)
+					}
+			}
+		}
+	}()
+
+	return handler, nil
 }
 
 func (h *Handler) Close() error {
@@ -29,29 +53,49 @@ func (h *Handler) Close() error {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	respond := func(code int) {
+		w.WriteHeader(code)
+
+		h.responsesMux.Lock()
+		defer h.responsesMux.Unlock()
+
+		uri := r.RequestURI
+		if strings.HasPrefix(uri, "/infraction/") {
+			uri = "/infraction/*"
+		}
+
+		if _, ok := h.responses[uri]; !ok {
+			h.responses[uri] = make(map[int]int)
+		}
+		if _, ok := h.responses[uri][code]; !ok {
+			h.responses[uri][code] = 0
+		}
+		h.responses[uri][code]++
+	}
+
 	if strings.HasPrefix(r.RequestURI, "/infraction/") {
 		s := r.RequestURI[len("/infraction/"):]
 		ip :=  net.ParseIP(s)
 		if ip == nil {
 			WarningLog("%q is not a valid ip", s)
-			w.WriteHeader(http.StatusBadRequest)
+			respond(http.StatusBadRequest)
 			return
 		}
 
-		// FIXME skip link local, etc.  also check error
-		h.jailer.AddInfraction(ip)
-		// FIXME STOPPED use jailer to standalone vs service handling
-
-
+		if err := h.jailer.AddInfraction(ip); err != nil {
+			respond(http.StatusServiceUnavailable)
+			return
+		}
+		respond(http.StatusOK)
 
 	} else if r.RequestURI == "/state/infractions" {
 		// FIXME
 
 	} else if r.RequestURI == "/state/requests" {
-		// FIXME
+		// FIXME STOPPED
 
 	} else {
 		WarningLog("unsupported uri: %s", r.RequestURI)
-		w.WriteHeader(http.StatusNotFound)
+		respond(http.StatusNotFound)
 	}
 }
