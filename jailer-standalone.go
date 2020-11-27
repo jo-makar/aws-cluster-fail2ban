@@ -56,18 +56,6 @@ func (j StandaloneJailer) AddInfraction(ip net.IP) error {
 		j.infractions[s] = []time.Time{}
 	}
 
-	var i int
-	for i = 0; i < len(j.infractions[s]); i++ {
-		if time.Now().Sub(j.infractions[s][i]).Seconds() < FindTime {
-			break
-		}
-	}
-	if i == len(j.infractions[s]) {
-		j.infractions[s] = []time.Time{}
-	} else if i > 0 {
-		j.infractions[s] = j.infractions[s][i:]
-	}
-
 	j.infractions[s] = append(j.infractions[s], time.Now())
 
 	var o strings.Builder
@@ -115,6 +103,7 @@ func (j StandaloneJailer) manageState() {
 			return
 		}
 
+		InfoLog("%s is unbanned", s)
 		if err := j.Unban(ip); err != nil {
 			ErrorLog(err.Error())
 		}
@@ -125,7 +114,7 @@ func (j StandaloneJailer) manageState() {
 		limit := len(j.infractions[ip])
 
 		endtime := bannedUntil(j.infractions[ip])
-		if !endtime.IsZero() {
+		if !endtime.IsZero() && time.Now().Before(endtime) {
 			limit = len(j.infractions[ip]) - MaxRetry
 			DebugLog("%s banned until %s", ip, endtime.Format("2006-01-02T15:04:05"))
 		}
