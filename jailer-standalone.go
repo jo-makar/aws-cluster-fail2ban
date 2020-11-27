@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -12,49 +13,36 @@ type StandaloneJailer struct {
 	                                        // net.IP is a slice type and cannot be used to map keys
 	infractions    map[string]([]time.Time) // Unix timestamps of infractions by offending ip
 
-	quitChans      []chan bool
+	quitChan       chan bool
 }
 
 func NewStandaloneJailer() (*StandaloneJailer, error) {
+	// FIXME STOPPED read in the ip set and automatically ban them
+
 	jailer := &StandaloneJailer{
 		infractions: make(map[string]([]time.Time)),
-		  quitChans: []chan bool{make(chan bool)},
+		   quitChan: make(chan bool),
 	}
 
-	go func(quitChan <-chan bool) {
+	go func() {
+		// TODO Ideally want something based on FindTime and BanTime
+		period := 1 * time.Minute
+
 		for {
 			select {
-				case <-quitChan:
+				case <-jailer.quitChan:
 					break
-				case <-time.After(2 * FindTime * time.Second):
-					jailer.cleanup()
+				case <-time.After(period):
+					jailer.manageState()
 			}
 		}
-	}(jailer.quitChans[0])
-
-	// FIXME periodically unban ips
-
-	// FIXME periodically output stats via a goroutine? or just rely on /state/...
-	/* 
-	go func(quitChan <-chan bool) {
-		for {
-			select {
-				case <-quitChan:
-					break
-				case <-time.After(2 * time.Minute):
-					jailer.cleanup()
-			}
-		}
-	}(jailer.quitChans[1])
-	*/
+	}()
 
 	return jailer, nil
 }
 
 func (j StandaloneJailer) Close() error {
-	for _, c := range j.quitChans {
-		c <- true
-	}
+	j.quitChan <- true
 	return nil
 }
 
@@ -88,7 +76,7 @@ func (j StandaloneJailer) AddInfraction(ip net.IP) error {
 		if i > 0 {
 			o.WriteString(" ")
 		}
-		o.WriteString(v.Format("15:04:05"))
+		o.WriteString(v.Format("2006-01-02T15:04:05"))
 	}
 	o.WriteString("]")
 	DebugLog("infractions[%s] = %s", s, o.String())
@@ -101,26 +89,67 @@ func (j StandaloneJailer) AddInfraction(ip net.IP) error {
 	return nil
 }
 
-func (j StandaloneJailer) cleanup() {
+func bannedUntil(infractions []time.Time) time.Time {
+	if len(infractions) < MaxRetry {
+		return time.Time{}
+	}
+
+	return infractions[len(infractions)-1].Add(BanTime * time.Second)
+}
+
+func (j StandaloneJailer) manageState() {
 	j.infractionsMux.Lock()
 	defer j.infractionsMux.Unlock()
 
 	ipsDeleted := 0
 	ipsAffected := 0
 	infractionsDeleted := 0
+	ipsUnbanned := 0
 
-	for k := range j.infractions {
+	unban := func(s string) {
+		ipsUnbanned++
+
+		ip := net.ParseIP(s)
+		if ip == nil { // Should never happen
+			ErrorLog("could not parse %s as an ip", s)
+			return
+		}
+
+		if err := j.Unban(ip); err != nil {
+			ErrorLog(err.Error())
+		}
+	}
+
+	for ip := range j.infractions {
+		origlen := len(j.infractions[ip])
+		limit := len(j.infractions[ip])
+
+		endtime := bannedUntil(j.infractions[ip])
+		if !endtime.IsZero() {
+			limit = len(j.infractions[ip]) - MaxRetry
+			DebugLog("%s banned until %s", ip, endtime.Format("2006-01-02T15:04:05"))
+		}
+
 		var i int
-		for i = 0; i < len(j.infractions[k]); i++ {
-			if time.Now().Sub(j.infractions[k][i]).Seconds() < FindTime {
+		for i = 0; i < limit; i++ {
+			if time.Now().Sub(j.infractions[ip][i]).Seconds() < FindTime {
 				break
 			}
 		}
-		if i == len(j.infractions[k]) {
-			delete(j.infractions, k)
+		if i == len(j.infractions[ip]) {
+			if origlen >= MaxRetry {
+				unban(ip)
+			}
+
+			delete(j.infractions, ip)
 			ipsDeleted++
+
 		} else if i > 0 {
-			j.infractions[k] = j.infractions[k][i:]
+			if origlen >= MaxRetry && origlen-i < MaxRetry {
+				unban(ip)
+			}
+
+			j.infractions[ip] = j.infractions[ip][i:]
 			ipsAffected++
 			infractionsDeleted += i
 		}
@@ -134,21 +163,45 @@ func (j StandaloneJailer) cleanup() {
 		}
 	}
 
+	if ipsUnbanned > 0 {
+		InfoLog("manageState: %d ip%s unbanned", ipsUnbanned, suffix(ipsUnbanned))
+	}
 	if ipsDeleted > 0 {
-		InfoLog("cleanup: %d ip%s deleted", ipsDeleted, suffix(ipsDeleted))
+		InfoLog("manageState: %d ip%s deleted", ipsDeleted, suffix(ipsDeleted))
 	}
 	if ipsAffected > 0 {
-		InfoLog("cleanup: %d infraction%s deleted from %d ip%s",
+		InfoLog("manageState: %d infraction%s deleted from %d ip%s",
 		        infractionsDeleted, suffix(infractionsDeleted), ipsAffected, suffix(ipsAffected))
 	}
 }
 
 func (j StandaloneJailer) Ban(ip net.IP) error {
-	// FIXME need to maintain state (ie a variable) for when the ban ends
+	// FIXME just the aws waf cmd
 	return nil
 }
 
 func (j StandaloneJailer) Unban(ip net.IP) error {
-	// FIXME
+	// FIXME just the aws waf cmd
 	return nil
+}
+
+func (j StandaloneJailer) WriteState(w *http.ResponseWriter) error {
+	j.infractionsMux.Lock()
+	defer j.infractionsMux.Unlock()
+
+	table := make(map[string]string)
+	for ip, times:= range j.infractions {
+		pretty := ""
+		for _, t := range times {
+			pretty += t.Format(" 2006-01-02T15:04:05")
+		}
+
+		if endtime := bannedUntil(times); !endtime.IsZero() {
+			pretty += endtime.Format(" (banned until 2006-01-02T15:04:05)")
+		}
+
+		table[ip] = pretty
+	}
+
+	return WriteTable(w, table)
 }

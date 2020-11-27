@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"net/http"
 )
 
 // Using the fail2ban jail options terminology
@@ -17,6 +18,8 @@ type Jailer interface {
 
 	Ban(ip net.IP) error
 	Unban(ip net.IP) error
+
+	WriteState(w *http.ResponseWriter) error
 
 	Close() error
 }

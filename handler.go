@@ -32,15 +32,16 @@ func NewHandler(jailer Jailer) (*Handler, error) {
 					break
 				case <-time.After(10 * time.Minute):
 					handler.responsesMux.Lock()
-					handler.responsesMux.Unlock()
 
 					for uri, stats := range handler.responses {
 						pretty := ""
 						for k, v := range stats {
 							pretty += fmt.Sprintf(" %d:%d", k, v)
 						}
-						InfoLog("stats: %s:%s\n", uri, pretty)
+						InfoLog("stats: %s:%s", uri, pretty)
 					}
+
+					handler.responsesMux.Unlock()
 			}
 		}
 	}()
@@ -49,6 +50,7 @@ func NewHandler(jailer Jailer) (*Handler, error) {
 }
 
 func (h *Handler) Close() error {
+	h.quitChan <- true
 	return nil
 }
 
@@ -89,10 +91,29 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respond(http.StatusOK)
 
 	} else if r.RequestURI == "/state/infractions" {
-		// FIXME
+		respond(http.StatusOK)
+		if err := h.jailer.WriteState(&w); err != nil {
+			ErrorLog(err.Error())
+		}
 
 	} else if r.RequestURI == "/state/requests" {
-		// FIXME STOPPED
+		respond(http.StatusOK)
+
+		h.responsesMux.Lock()
+		defer h.responsesMux.Unlock()
+
+		table := make(map[string]string)
+		for uri, stats:= range h.responses {
+			pretty := ""
+			for k, v := range stats {
+				pretty += fmt.Sprintf(" %d:%d", k, v)
+			}
+			table[uri] = pretty
+		}
+
+		if err := WriteTable(&w, table); err != nil {
+			ErrorLog(err.Error())
+		}
 
 	} else {
 		WarningLog("unsupported uri: %s", r.RequestURI)
