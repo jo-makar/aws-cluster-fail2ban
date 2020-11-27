@@ -21,9 +21,15 @@ func main() {
 
 	flag.Parse()
 
+	if len(flag.Args()) != 1 {
+		fmt.Fprintf(os.Stderr, "usage: main-standalone.go [opts] <ipset>\n")
+		os.Exit(1)
+	}
+	ipset := flag.Args()[0]
+
 	DefaultLogger.Level = logLevel
 
-	jailer, err := NewStandaloneJailer()
+	jailer, err := NewStandaloneJailer(ipset)
 	if err != nil {
 		PanicLog(err.Error())
 	}

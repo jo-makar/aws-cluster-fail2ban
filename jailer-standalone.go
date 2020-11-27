@@ -13,15 +13,31 @@ type StandaloneJailer struct {
 	                                        // net.IP is a slice type and cannot be used to map keys
 	infractions    map[string]([]time.Time) // Unix timestamps of infractions by offending ip
 
+	ipset          *IpSet
+
 	quitChan       chan bool
 }
 
-func NewStandaloneJailer() (*StandaloneJailer, error) {
-	// FIXME STOPPED read in the ip set and automatically ban them
+func NewStandaloneJailer(ipsetName string) (*StandaloneJailer, error) {
+	ipset, err := NewIpSet(ipsetName)
+	if err != nil {
+		return nil, err
+	}
 
 	jailer := &StandaloneJailer{
 		infractions: make(map[string]([]time.Time)),
+		      ipset: ipset,
 		   quitChan: make(chan bool),
+	}
+
+	if ips, _, err := ipset.Get(); err != nil {
+		return nil, err
+	} else {
+		for _, ip := range ips {
+			for i:=0; i<MaxRetry; i++ {
+				jailer.AddInfraction(ip)
+			}
+		}
 	}
 
 	go func() {
@@ -165,13 +181,11 @@ func (j StandaloneJailer) manageState() {
 }
 
 func (j StandaloneJailer) Ban(ip net.IP) error {
-	// FIXME just the aws waf cmd
-	return nil
+	return j.ipset.Add(ip)
 }
 
 func (j StandaloneJailer) Unban(ip net.IP) error {
-	// FIXME just the aws waf cmd
-	return nil
+	return j.ipset.Del(ip)
 }
 
 func (j StandaloneJailer) WriteState(w *http.ResponseWriter) error {

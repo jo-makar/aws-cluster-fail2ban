@@ -9,10 +9,10 @@ This project itself can be implement as a service (ie as several containers) for
 
 ```sh
 # run standalone
-shopt -s extglob; go run *-standalone.go !(*-standalone|*-service).go [-l loglevel] [-p port]
+shopt -s extglob; go run *-standalone.go !(*-standalone|*-service).go [-l loglevel] [-p port] <aws-ip-set-name>
 
 # run as a service, see also the Dockerfile FIXME
-shopt -s extglob; go run *-service.go !(*-standalone|*-service).go [-l loglevel] [-p port]
+shopt -s extglob; go run *-service.go !(*-standalone|*-service).go [-l loglevel] [-p port] <aws-ip-set-name>
 ```
 
 ## Client interface

@@ -85,6 +85,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := h.jailer.AddInfraction(ip); err != nil {
+			ErrorLog(err.Error())
 			respond(http.StatusServiceUnavailable)
 			return
 		}
