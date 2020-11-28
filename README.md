@@ -13,6 +13,7 @@ shopt -s extglob; go run *-standalone.go !(*-standalone|*-service).go [-l loglev
 
 # run as a service, see also the Dockerfile (TODO)
 # go module usage required due to redis module dependency
+# all containers expected to be in the same timezone (change to utc if necessary)
 go mod init github.com/jo-makar/aws-fail2ban
 shopt -s extglob; go run *-service.go !(*-standalone|*-service).go [-l loglevel] [-p port] [-r redis-addr:port] <aws-ip-set-name>
 ```

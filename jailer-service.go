@@ -17,6 +17,7 @@ func ipToKey(ip net.IP) string {
 }
 
 func keyToIp(key string) net.IP {
+	// Possibly nil but should never happen
 	return net.ParseIP(key[13:])
 }
 
@@ -106,6 +107,7 @@ func (j ServiceJailer) manageState() {
 
 	keysEvaluated := 0
 	scanIterations := 0
+	ipsDeleted := 0
 	ipsAffected := 0
 	infractionsDeleted := 0
 	ipsUnbanned := 0
@@ -125,26 +127,22 @@ func (j ServiceJailer) manageState() {
 		return rv
 	}
 
-	bannedUntil := func(infractions []time.Time) (time.Time, int) {
+	bannedUntil := func(infractions []time.Time) time.Time {
 		if len(infractions) < MaxRetry {
-			return time.Time{}, -1
+			return time.Time{}
 		}
 
-		now := time.Now().UTC()
-		start := 0
-		for ; start < len(infractions); start++ {
-			if !infractions[start].Before(now.Add(-(FindTime * time.Second))) {
-				break
-			}
-		}
-
-		if len(infractions) - start >= MaxRetry {
-			return infractions[len(infractions)-1].Add(BanTime * time.Second), start
-		} else {
-			return time.Time{}, start
-		}
+		return infractions[len(infractions)-1].Add(BanTime * time.Second)
 	}
 
+	unban := func(ip net.IP) {
+		ipsUnbanned++
+
+		InfoLog("%s is unbanned", ip.String())
+		if err := j.Unban(ip); err != nil {
+			ErrorLog(err.Error())
+		}
+	}
 
 	for {
 		keys, retCursor, err := j.redisClient.Scan(ctx, cursor, "aws-fail2ban-*", count).Result()
@@ -166,27 +164,40 @@ func (j ServiceJailer) manageState() {
 			}
 
 			infractions := listToInfractions(redisList)
-			endtime, start := bannedUntil(infractions)
-			if !endtime.IsZero() && time.Now().UTC().Before(endtime) {
+			limit := len(infractions)
+
+			endtime := bannedUntil(infractions)
+			if !endtime.IsZero() && time.Now().Before(endtime) {
+				limit = len(infractions) - MaxRetry
 				DebugLog("%s banned until %s", ip.String(), endtime.Format("2006-01-02T15:04:05"))
-				continue
 			}
 
-			if start > 0 {
-				if _, err := j.redisClient.LTrim(ctx, key, int64(start), -1).Result(); err != nil {
+			var i int
+			for i = 0; i < limit; i++ {
+				if time.Now().Sub(infractions[i]).Seconds() < FindTime {
+					break
+				}
+			}
+			if i == len(infractions) {
+				if len(infractions) >= MaxRetry {
+					unban(ip)
+				}
+
+				if _, err := j.redisClient.Del(ctx, key).Result(); err != nil {
 					ErrorLog(err.Error())
 				}
+				ipsDeleted++
 
-				if len(infractions) >= MaxRetry && len(infractions)-start < MaxRetry {
-					InfoLog("%s is unbanned", ip.String())
-					if err := j.Unban(ip); err != nil {
-						ErrorLog(err.Error())
-					}
-					ipsUnbanned++
+			} else if i > 0 {
+				if len(infractions) >= MaxRetry && len(infractions)-i < MaxRetry {
+					unban(ip)
 				}
 
+				if _, err := j.redisClient.LTrim(ctx, key, int64(i), -1).Result(); err != nil {
+					ErrorLog(err.Error())
+				}
 				ipsAffected++
-				infractionsDeleted += start
+				infractionsDeleted += i
 			}
 		}
 
@@ -217,6 +228,9 @@ func (j ServiceJailer) manageState() {
 	if ipsUnbanned > 0 {
 		InfoLog("manageState: %d ip%s unbanned", ipsUnbanned, suffix(ipsUnbanned))
 	}
+	if ipsDeleted > 0 {
+		InfoLog("manageState: %d ip%s deleted", ipsDeleted, suffix(ipsDeleted))
+	}
 	if ipsAffected > 0 {
 		InfoLog("manageState: %d infractions%s deleted from %d ip%s",
 		        infractionsDeleted, suffix(infractionsDeleted), ipsAffected, suffix(ipsAffected))
@@ -226,7 +240,7 @@ func (j ServiceJailer) manageState() {
 func (j ServiceJailer) AddInfraction(ip net.IP) error {
 	ctx := context.Background()
 
-	now := time.Now().UTC()
+	now := time.Now()
 	llen, err := j.redisClient.RPush(ctx, ipToKey(ip), now.Unix()).Result()
 	if err != nil {
 		return err
