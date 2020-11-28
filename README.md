@@ -11,7 +11,7 @@ This project itself can be implement as a service (ie as several containers) for
 # run standalone
 shopt -s extglob; go run *-standalone.go !(*-standalone|*-service).go [-l loglevel] [-p port] <aws-ip-set-name>
 
-# run as a service, see also the Dockerfile FIXME
+# run as a service, see also the Dockerfile (TODO)
 # go module usage required due to redis module dependency
 go mod init github.com/jo-makar/aws-fail2ban
 shopt -s extglob; go run *-service.go !(*-standalone|*-service).go [-l loglevel] [-p port] [-r redis-addr:port] <aws-ip-set-name>
