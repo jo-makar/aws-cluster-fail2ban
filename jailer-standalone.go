@@ -30,12 +30,15 @@ func NewStandaloneJailer(ipsetName string) (*StandaloneJailer, error) {
 		   quitChan: make(chan bool),
 	}
 
+	// Ensure ip set contents are being managed
 	if ips, _, err := ipset.Get(); err != nil {
 		return nil, err
 	} else {
 		for _, ip := range ips {
 			for i:=0; i<MaxRetry; i++ {
-				jailer.AddInfraction(ip)
+				if err := jailer.AddInfraction(ip); err != nil {
+					ErrorLog(err.Error())
+				}
 			}
 		}
 	}

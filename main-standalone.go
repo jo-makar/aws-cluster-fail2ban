@@ -22,7 +22,7 @@ func main() {
 	flag.Parse()
 
 	if len(flag.Args()) != 1 {
-		fmt.Fprintf(os.Stderr, "usage: main-standalone.go [opts] <ipset>\n")
+		fmt.Fprintf(os.Stderr, "usage: main-standalone [opts] <ipset>\n")
 		os.Exit(1)
 	}
 	ipset := flag.Args()[0]
@@ -57,7 +57,7 @@ func main() {
 	}
 
 	InfoLog("listening on port %d", port)
-	server := http.Server{Addr:fmt.Sprintf(":%d", port)}
+	server := http.Server{Addr: fmt.Sprintf(":%d", port)}
 	if logLevel <= 1 {
 		server.ErrorLog = log.New(os.Stderr, "http.Server: ", log.LstdFlags)
 	}
