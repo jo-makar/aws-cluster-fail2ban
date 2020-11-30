@@ -184,11 +184,21 @@ func (j StandaloneJailer) manageState() {
 }
 
 func (j StandaloneJailer) Ban(ip net.IP) error {
-	return j.ipset.Add(ip)
+	go func() {
+		if err := j.ipset.Add(ip); err != nil {
+			ErrorLog(err.Error())
+		}
+	}()
+	return nil
 }
 
 func (j StandaloneJailer) Unban(ip net.IP) error {
-	return j.ipset.Del(ip)
+	go func() {
+		if err := j.ipset.Del(ip); err != nil {
+			ErrorLog(err.Error())
+		}
+	}()
+	return nil
 }
 
 func (j StandaloneJailer) WriteState(w *http.ResponseWriter) error {

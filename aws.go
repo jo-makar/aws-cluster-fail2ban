@@ -99,6 +99,8 @@ func (i *IpSet) Get() ([]net.IP, string, error) {
 	return ips, parsed.LockToken, nil
 }
 
+// TODO Rather than adding/deleting one at a time using a queuing system and batch the operations?
+
 func (i *IpSet) Add(ip net.IP) error {
 	i.mux.Lock()
 	defer i.mux.Unlock()

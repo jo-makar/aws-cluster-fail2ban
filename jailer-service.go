@@ -269,11 +269,21 @@ func (j ServiceJailer) AddInfraction(ip net.IP) error {
 }
 
 func (j ServiceJailer) Ban(ip net.IP) error {
-	return j.ipset.Add(ip)
+	go func() {
+		if err := j.ipset.Add(ip); err != nil {
+			ErrorLog(err.Error())
+		}
+	}()
+	return nil
 }
 
 func (j ServiceJailer) Unban(ip net.IP) error {
-	return j.ipset.Del(ip)
+	go func() {
+		if err := j.ipset.Del(ip); err != nil {
+			ErrorLog(err.Error())
+		}
+	}()
+	return nil
 }
 
 func (j ServiceJailer) WriteState(w *http.ResponseWriter) error {
