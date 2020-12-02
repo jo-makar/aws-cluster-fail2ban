@@ -164,7 +164,7 @@ func (j StandaloneJailer) manageState() {
 	}
 
 	suffix := func(v int) string {
-		if v > 1 {
+		if v == 0 || v > 1 {
 			return "s"
 		} else {
 			return ""

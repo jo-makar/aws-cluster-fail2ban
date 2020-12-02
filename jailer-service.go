@@ -18,7 +18,7 @@ func ipToKey(ip net.IP) string {
 
 func keyToIp(key string) net.IP {
 	// Possibly nil but should never happen
-	return net.ParseIP(key[13:])
+	return net.ParseIP(key[len("aws-fail2ban-"):])
 }
 
 type ServiceJailer struct {
@@ -144,6 +144,8 @@ func (j ServiceJailer) manageState() {
 		}
 	}
 
+	start := time.Now()
+
 	for {
 		keys, retCursor, err := j.redisClient.Scan(ctx, cursor, "aws-fail2ban-*", count).Result()
 		if err != nil {
@@ -215,15 +217,16 @@ func (j ServiceJailer) manageState() {
 	}
 
 	suffix := func(v int) string {
-		if v > 1 {
+		if v == 0 || v > 1 {
 			return "s"
 		} else {
 			return ""
 		}
 	}
 
-	InfoLog("manageState: %d key%s evaluated in %d scan iteration%s",
-	        keysEvaluated, suffix(keysEvaluated), scanIterations, suffix(scanIterations))
+	InfoLog("manageState: %d key%s evaluated in %d scan iteration%s / %s",
+	        keysEvaluated, suffix(keysEvaluated), scanIterations, suffix(scanIterations),
+		time.Since(start).Round(time.Millisecond).String())
 
 	if ipsUnbanned > 0 {
 		InfoLog("manageState: %d ip%s unbanned", ipsUnbanned, suffix(ipsUnbanned))

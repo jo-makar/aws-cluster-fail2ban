@@ -55,6 +55,9 @@ func main() {
 
 	http.Handle("/infraction/", handler)
 
+	// AWS ECS health check handler
+	http.Handle("/", handler)
+
 	if logLevel <= 1 {
 		http.Handle("/state/infractions", handler)
 		http.Handle("/state/requests", handler)

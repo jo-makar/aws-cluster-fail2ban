@@ -91,6 +91,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		respond(http.StatusOK)
 
+	} else if r.RequestURI == "/" {
+		respond(http.StatusOK)
+
 	} else if r.RequestURI == "/state/infractions" {
 		respond(http.StatusOK)
 		if err := h.jailer.WriteState(&w); err != nil {
